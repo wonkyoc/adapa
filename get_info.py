@@ -18,8 +18,8 @@ def replace_id(id):
 
 
 def main():
-    bbox_path = "test-1d676737.pkl"
-    #bbox_path = "data/mrcnn50_nm_s0.5/val/results_ccf.pkl"
+    #bbox_path = "test-1d676737.pkl"
+    bbox_path = "results_ccf_marked.pkl"
     
     # load bbox
     with open(bbox_path, "rb") as f:
@@ -35,6 +35,8 @@ def main():
     #out_path = "/home/wonkyoc/git/system/test-1d676737.pkl"
     #if not isfile(out_path):
     #    pickle.dump(raw_objs, open(out_path, "wb"))
+    print(data[0])
+    1/0
     
     image_id = replace_id(0)
 

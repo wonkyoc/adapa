@@ -19,17 +19,21 @@ class Object:
             "traffic_light",    # 9
             "stop_sign",    # 11
             ]
-    threshold = 0.5
     newid = itertools.count()
 
-    def __init__(self, image_id, bbox, score, category_id):
+    def __init__(self, image_id, bbox, score, category_id, velocity, uncertainty, 
+                 marked):
         self.object_id = next(Object.newid)
         self.image_id = image_id
         self.bbox = bbox
         self.score = score
         self.category_id = category_id
         self.category = self.categories[category_id]
-        self.left = False
+        self.velocity = velocity
+        self.uncertainty = uncertainty
+        self.marked = marked
+
+        self.left = False   # is this left out from a frame?
 
 
 class Detector:
@@ -42,8 +46,11 @@ class Detector:
 
 
 class ADS:
-    bbox_path = "data/mrcnn50_nm_s0.5/val/results_ccf.pkl"
+    #bbox_path = "data/mrcnn50_nm_s0.5/val/results_ccf_marked.pkl"
+    bbox_path = "results_ccf_marked.pkl"
     detector = None
+    threshold = 0.05
+    image_size = 1920 * 1200
     #ego_bbox = [800, 600, 500, 150]   # estimated location
 
     def __init__(self):
@@ -87,7 +94,6 @@ class ADS:
 
     def perception(self):
         runtime = 0
-        count = 0
         for frame in self.frames:
             # we dont have any objs so full-process
             if len(self.detected_objects) < 1:
@@ -97,11 +103,13 @@ class ADS:
                             obj["bbox"],
                             obj["score"],
                             obj["category_id"],
+                            obj["velocity"],
+                            obj["uncertainty"],
+                            obj["marked"],
                             )
                     self.detected_objects.append(detected)
                 # add full latency
                 runtime += self.detector.latency
-                print(self.detected_objects)
                 continue
 
             for old in self.detected_objects:
@@ -121,12 +129,18 @@ class ADS:
                     # if category is the same, check (x,y) range
                     old_x = old.bbox[0]
                     old_y = old.bbox[1]
+
+                    upper_t = 1.0 + self.threshold
+                    lower_t = 1.0 - self.threshold
                 
-                    if (new_x <= old_x * 1.2) and (new_x >= old_x * 0.8):
-                        if (new_y <= old_y * 1.2) and (new_y >= old_y * 0.8):
+                    if (new_x <= old_x * upper_t) and (new_x >= old_x * lower_t):
+                        if (new_y <= old_y * upper_t) and (new_y >= old_y * lower_t):
                             # object is possibly the same then update bbox
                             old.bbox = obj["bbox"]
                             old.score = obj["score"]
+                            old.velocity = obj["velocity"]
+                            old.uncertainty = obj["uncertainty"]
+                            old.marked = obj["marked"]
                             old.left = False
                             isNew = False
                             break
@@ -137,15 +151,35 @@ class ADS:
                             obj["bbox"],
                             obj["score"],
                             obj["category_id"],
+                            obj["velocity"],
+                            obj["uncertainty"],
+                            obj["marked"],
                             )
                     self.detected_objects.append(detected)
+
+                    # add latency for a new object
+                    area = detected.bbox[2] * detected.bbox[3]
+                    runtime += self.detector.latency * (area / self.image_size)
 
             # remove undetected obj in the current frame
             self.detected_objects = [x for x in self.detected_objects if x.left == False]
 
-        # -- End of a single frame -- #
-            
+            # estimate processing time objects
+            # this only considers important objects
+            for obj in self.detected_objects:
+                if obj.marked == 1:
+                    area = obj.bbox[2] * obj.bbox[3]
+                    runtime += self.detector.latency * (area / self.image_size)
+                # else:
+                #     # rest of objects...
+                #      area = obj.bbox[2] * obj.bbox[3]
+                #      runtime += (self.detector.latency * (area / self.image_size))
 
+        # -- End of processing frames -- #
+        print("total_frames (n):        %d" % (len(self.frames)))
+        print("total_runtime (ms):       %.2f" % (runtime))
+        print("per_frame_latency (ms):   %.2f" % (runtime / len(self.frames)))
+            
     # start system in pipeline manner
     def run(self):
         self.perception()
